@@ -15,22 +15,25 @@ import warnings
 pd.options.mode.chained_assignment = None  # default='warn'
 
 
-def read_all_data(file_dir, sep=None):
+def read_all_data(file_dir, file_type='.csv', sep=None):
     """
     Function that reads all the files (Excels) in a directory as one DataFrame.
 
     file_dir = file directory (string)
     """
+    if not file_type.startswith('.'):
+        file_type = '.' + file_type
+    assert file_type in ['.csv', '.xlsx', '.xls', '.shp']
     df = pd.DataFrame()  # Create empty DataFrame
     with warnings.catch_warnings(record=True):
         warnings.simplefilter('always')
         for file in os.listdir(file_dir):  # Open all files in the directory
-            if file.endswith('xls') or file.endswith('xlsx') or file.endswith('csv'):
+            if file.endswith(file_type):
                 data = read_df(file=file, file_dir=file_dir, sep=sep)
                 if df.empty:
                     df = data
                 else:
-                    df = pd.concat([df, data])
+                    df = pd.concat([df, data], ignore_index=True)
         df = df.reset_index()
     return df
 
@@ -63,21 +66,24 @@ def read_df(file, sep=None, file_dir=None):
     if file_dir is not None:
         file = os.path.join(file_dir, file)
     file_type = file[-4:]
-    if file_type in ['.csv', '.xls', 'xlsx']:
+    if file_type in ['.csv', '.xls', 'xlsx', '.shp']:
         with _print_with_time('Opening file ' + file):
             if file_type == '.csv':
-                df = pd.read_csv(file, sep=sep)
+                df = pd.read_csv(file, sep=sep, engine='python')
             elif file_type == '.xls':
-                df = pd.read_excel(file, engine="openpyxl")
+                df = pd.read_excel(file, engine="xlrd")
             elif file_type == 'xlsx':
                 df = pd.read_excel(file, engine="openpyxl")
+            elif file_type == '.shp':
+                df = gpd.read_file(file)
+                assert df.crs, 'Shapefile is missing CRS'
     else:
-        raise TypeError('File not recognized as a .csv or .xls')
+        raise TypeError('File not recognized as a .csv, .xlsx or .xls')
     return df
 
 
 def save_all_data_months(df, datetime_column, dir_output='Output', output_type='csv',
-                         latitude=None, longitude=None, input_crs=None):
+                         latitude=None, longitude=None, input_crs='epsg:4326'):
     """
     Exports a DataFrame into Excel (.xls) files separated by month, such as "2019_02.xls".
     If the number of rows (entries) exceeds the maximum Excel file size, the file is separated into several Excel files
@@ -164,6 +170,93 @@ def save_all_data_months(df, datetime_column, dir_output='Output', output_type='
                     days[idx] = days[idx][i + 1:]
 
 
+def save_all_data_years(df, datetime_column, dir_output='Output', output_type='csv',
+                        latitude=None, longitude=None, input_crs=None):
+    """
+    Exports a DataFrame into Excel (.xls) files separated by year, such as "2019.xls".
+    If the number of rows (entries) exceeds the maximum Excel file size, the file is separated into several Excel files
+    and the name of the file indicates the maximum day included in that file, such as "2019_02_16.xls"
+
+    df = DataFrame to be exported
+
+    dir_output = directory where the data will be saved. If None, saves in the same working directory. If the
+    directory doesn't exist, it creates it.
+
+    output_type = type of output file, either Excel (.xls or .xlsx) or csv, or shapefile. Default is csv.
+    """
+
+    # Makes sure the output directory (file_dir) exists, if not, it creates it.
+    os.makedirs(dir_output, exist_ok=True)
+
+    # Extract the years in the files to later create individual dataframes
+    # and the names of the output .csv files for each year
+
+    if 'Year' not in df.columns:
+        df['Year'] = df[datetime_column].dt.to_period('Y')
+
+    if not isinstance(df['Year'].dtype, str):
+        years = sorted(list(df.Year.unique()))  # list of the years from which the DataFrames will be extracted
+        years_name = [year.strftime('%Y') for year in years]  # list of the names of the years for the .csv files
+    else:
+        years = sorted(list(df.Year.unique()))
+        years_name = years
+    days = []
+    for year in years:
+        day_year = sorted(list(df[datetime_column][df['Year'] == year].unique()))
+        days.append(day_year)
+
+    # Exporting files
+    if not output_type.startswith("."):
+        output_type = "." + output_type
+
+    if output_type == '.csv':
+        max_rows = np.inf  # no maximum rows in a csv file
+    elif output_type == '.shp':
+        max_rows = np.inf
+        if not isinstance(df, gpd.geodataframe.GeoDataFrame):
+            assert all([longitude, latitude, input_crs]) is not None, \
+                f'No data provided for longitude, latitude, or input_crs'
+            df = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df[longitude], df[latitude]), crs=input_crs)
+    elif output_type == '.xlsx':
+        max_rows = 1000000  # actually it is 1048576
+    elif output_type == '.xls':
+        max_rows = 65000  # actually it is 65536 (2^16)
+    else:
+        raise TypeError(output_type + " is not a valid output type")
+
+    for year, year_name, idx in zip(years, years_name, range(len(years))):
+        df_year = df[df['Year'] == year]  # Create a new DataFrame with the data of that specific year
+        file_name = year_name + output_type
+        if len(df_year) < max_rows:
+            with _print_with_time('Exporting ' + file_name + ' to file'):
+                if output_type == '.xls' or output_type == '.xlsx':
+                    df_year.to_excel(os.path.join(dir_output, file_name), index=None)
+                elif output_type == '.csv':
+                    df_year.to_csv(os.path.join(dir_output, file_name), index=None)
+                elif output_type == '.shp':
+                    df_year.to_file(os.path.join(dir_output, file_name), index=None)
+        else:
+            assert output_type != '.csv'
+            with _print_with_time('Exporting %s in different %s files' % (file_name, output_type)):
+                while len(days[idx]) > 0:  # save files
+                    for i in range(len(days[idx])):  # days
+                        if len(df_year[df_year['Date'].isin(days[idx][:i + 1])]) > max_rows:
+                            i = i - 1
+                            break
+                    if type(df['Year'][0]) is not str:
+                        file_name = year_name + '_' + days[idx][i].strftime('%d') + output_type
+                    else:
+                        file_name = year_name + '_' + days[idx][i][-2:] + output_type
+                    print('\n Exporting ' + file_name)
+                    file_name = os.path.join(dir_output, file_name)
+                    df_save = df_year[df_year['Date'].isin(days[idx][:i + 1])]
+                    assert len(df_save) > 0, "Too many rows for day %s. Cannot save in %s" % (days[idx][
+                                                                                                  i + 1].strftime('%d'),
+                                                                                              output_type)
+                    df_save.to_excel(file_name, index=None)
+                    days[idx] = days[idx][i + 1:]
+
+
 def save_all_data(df, file_name, dir_output='Output', output_type='csv',
                   latitude=None, longitude=None, input_crs=None):
     """
@@ -215,10 +308,10 @@ def save_all_data(df, file_name, dir_output='Output', output_type='csv',
         print('Can not save output file')
 
 
-def fishing_effort_min(df, datetime_column, name_column,
-                       additional_columns):
+def data_reduction_min(df, datetime_column, name_column,
+                       additional_columns, date_format=None):
     """
-    Opens all AIS files and extracts the first entry of each minute for
+    Extracts the first entry of each minute for
     each vessel during the sampling period.
 
     df = DataFrame that needs to be processed
@@ -236,9 +329,12 @@ def fishing_effort_min(df, datetime_column, name_column,
     """
 
     # Create new date-time column rounded to minutes
-    with _print_with_time('Converting to "date-time" format'):
-        new_column = datetime_column + '_min'
-        df[new_column] = pd.to_datetime(df[datetime_column], dayfirst=True)
+    if not pd.api.types.is_datetime64_any_dtype(df[datetime_column]):
+        with _print_with_time(f'Converting column {datetime_column} to Datetime'):
+            # Convert datetime_column to datetime
+            df[datetime_column] = pd.to_datetime(df[datetime_column], format=date_format)
+    new_column = datetime_column + '_min'
+    df[new_column] = df[datetime_column]
     with _print_with_time('Rounding time to minutes'):
         df[new_column] = df[new_column].values.astype('<M8[m]')
 
@@ -415,45 +511,73 @@ def filter_trawlers(df, column_gear, gear_name='OTB'):
     return df_trawl
 
 
-def define_fishing_speed(df, speed_column, mean_trawl=3, mean_nav=10):
+def define_fishing_speed(df, speed_column,
+                         mean_drift=None, mean_trawl=3, mean_nav=10,
+                         mode='bimodal'):
     """
-    Models two Gaussian distributions of the dataset (speed of bottom trawlers) to identify the speed at which
-    bottom trawlers operates
+    Fits Gaussian distributions to vessel speed data with optional bimodal or trimodal modes.
 
-    df = DataFrame with the data
-    speed_column = Name of the column with the speed data
+    Parameters:
+    - df: DataFrame with speed data
+    - speed_column: column name with speeds
+    - mean_drift: initial guess for drifting speed (only for trimodal)
+    - mean_trawl: initial guess for trawling speed
+    - mean_nav: initial guess for navigating speed
+    - mode: 'bimodal' or 'trimodal'
 
-    returns a DataFrame with the values of the histogram
+    Returns:
+    - DataFrame with parameters and 95% confidence ranges
     """
-    data = df[speed_column]
-    with _print_with_time('Defining Gaussian bimodal distribution of trawling speeds'):
-        # Create a list of 101 Sog values that go from the minimum value to the maximum value at equal intervals
-        x = np.linspace(min(data), max(data), num=101)
-        # Calculates the frequency of the previous values
-        y = np.array(data.value_counts(bins=100, sort=False))
-        x = (x[1:] + x[:-1]) / 2  # for len(x)==len(y)
+    data = df[speed_column].dropna()
 
-        def gauss(x, mu, sigma, A):
-            return A * np.exp(-(x - mu) ** 2 / 2 / sigma ** 2)
+    # Histogram setup
+    y = np.array(data.value_counts(bins=100, sort=False))
+    bin_edges = np.linspace(min(data), max(data), num=101)
+    x = (bin_edges[1:] + bin_edges[:-1]) / 2
 
-        def bimodal(x, mu1, sigma1, A1, mu2, sigma2, A2):
-            return gauss(x, mu1, sigma1, A1) + gauss(x, mu2, sigma2, A2)
+    def gauss(x, mu, sigma, A):
+        return A * np.exp(-(x - mu) ** 2 / (2 * sigma ** 2))
 
-        # expected are the initial expected values: x, mu1, sigma1, A1, mu2, sigma2, A2
+    def bimodal(x, mu1, sigma1, A1, mu2, sigma2, A2):
+        return gauss(x, mu1, sigma1, A1) + gauss(x, mu2, sigma2, A2)
+
+    def trimodal(x, mu1, sigma1, A1, mu2, sigma2, A2, mu3, sigma3, A3):
+        return gauss(x, mu1, sigma1, A1) + gauss(x, mu2, sigma2, A2) + gauss(x, mu3, sigma3, A3)
+
+    if mode == 'bimodal':
         expected = [mean_trawl, 1, max(y[:50]), mean_nav, 1, max(y[50:])]
+        params, _ = curve_fit(bimodal, x, y, p0=expected)
+        means = [params[0], params[3]]
+        stds = [params[1], params[4]]
+        labels = ['trawling', 'navigating']
 
-        # Calculates the parameters of the two bimodal distribution
-        params, covar = curve_fit(bimodal, x, y, expected)
-        sigma = np.sqrt(np.diag(covar))
+    elif mode == 'trimodal':
+        if mean_drift is None:
+            raise ValueError("You must provide 'mean_drift' when using trimodal mode.")
+        # Initial amplitudes roughly proportional to thirds of histogram
+        expected = [mean_drift, 1, max(y[:33]),
+                    mean_trawl, 1, max(y[33:66]),
+                    mean_nav, 1, max(y[66:])]
+        params, _ = curve_fit(trimodal, x, y, p0=expected)
+        means = [params[0], params[3], params[6]]
+        stds = [params[1], params[4], params[7]]
+        labels = ['drifting', 'trawling', 'navigating']
 
-        # Creates a DataFrame of the parameters
-        df_params = pd.DataFrame(data={'mean': [params[0], params[3]], 'std_dev': [params[1], params[4]]},
-                                 index=['trawl', 'navigating'])
+    else:
+        raise ValueError("mode must be 'bimodal' or 'trimodal'")
+
+    df_params = pd.DataFrame({
+        'mean': means,
+        'std_dev': stds,
+        'range_lower': [m - 1.96 * s for m, s in zip(means, stds)],
+        'range_upper': [m + 1.96 * s for m, s in zip(means, stds)]
+    }, index=labels)
+
     return df_params
 
 
 def _classify_speed(df, speed_column, min_trawl, max_trawl, min_nav):
-    """ Classifies Speed Over Ground (SOG) into low speed (0), medium speed (1), and high speed (2)
+    """ Classifies Speed Over Ground (SOG) into low speed (0), medium speed (1), high speed (2), and navigating speed (3)
     where medium speed is the trawler speed when operating (doing a haul)
     sog_col = column where SOG is saved as in the DataFrame
     min_trawl = minimum trawling speed
@@ -507,9 +631,9 @@ def filter_speeds(df, speed_column, min_speed=0, max_speed=20):
     return df
 
 
-def identify_trawling(df, datetime_column, name_column, speed_column, min_trawl_speed, max_trawl_speed, min_nav_speed,
-                      min_duration_false_positive, min_duration_false_negative, min_haul,
-                      AIS_turn_off, remove_no_hauls=False, start_trawl_id=1):
+def identify_fishing(df, datetime_column, name_column, speed_column, min_trawl_speed, max_trawl_speed,
+                     min_nav_speed, max_duration_false_positive, max_duration_false_negative, min_haul,
+                     turn_off_time, remove_no_hauls=False, start_trawl_id=1, date_format=None):
     """
     Identifies trawling and haul ids.
     First:
@@ -528,18 +652,19 @@ def identify_trawling(df, datetime_column, name_column, speed_column, min_trawl_
     df = DataFrame
     datetime_column = name of column in dataframe that has the date and time of vessel positioning (type: string)
     name_column = name of column in dataframe with the name/code ID of the vessel
-    min_duration_false_positive = duration of continued entries classified as trawling need to take place
-    min_duration_false_negative = duration that these events take in minutes (maximum duration)
+    max_duration_false_positive = duration of continued entries classified as trawling need to take place
+    max_duration_false_negative = duration that these events take in minutes (maximum duration)
     min_haul = minimum duration of a haul (time in minutes)
-    AIS_turn_off = maximum time that the AIS is turned off before considering it belongs to a different haul
+    turn_off_time = maximum time that data is missing before considering it belongs to a different haul
 
     Returns DataFrame with the additional columns of 'Sog criteria', 'Trawling'
     and 'Haul id'
     """
 
-    with _print_with_time(f'Converting column {datetime_column} to Datetime'):
-        # Convert datetime_column to datetime
-        df[datetime_column] = pd.to_datetime(df[datetime_column])
+    if not pd.api.types.is_datetime64_any_dtype(df[datetime_column]):
+        with _print_with_time(f'Converting column {datetime_column} to Datetime'):
+            # Convert datetime_column to datetime
+            df[datetime_column] = pd.to_datetime(df[datetime_column], format=date_format)
     # Sort by datetime and vessel_id before filtering
     df.sort_values(by=[name_column, datetime_column], inplace=True)
 
@@ -559,53 +684,59 @@ def identify_trawling(df, datetime_column, name_column, speed_column, min_trawl_
     with _print_with_time('Getting set of trawling criteria'):
         # Creates a list of tuples (index start, index end) of all the 'chunks' based on same SOG criteria (0,1,2)
         # considering that the vessel's AIS has been turned off during less than 'AIS_turn_off'.
-        classify_trawling_list = _get_chunk_indices(df, _get_same_period_fn(AIS_turn_off, ['speed_criteria',
-                                                                                           name_column,
-                                                                                           'Date_day'],
+        classify_trawling_list = _get_chunk_indices(df, _get_same_period_fn(turn_off_time, ['speed_criteria',
+                                                                                            name_column,
+                                                                                            'Date_day'],
                                                                             datetime_column))
-    if min_duration_false_positive > 0:
+    if max_duration_false_positive > 0:
         with _print_with_time('Identifying false-positives'):
             # Converts min_haul into datetime format
-            min_duration_false_positive = pd.Timedelta(minutes=min_duration_false_positive)
+            max_duration_false_positive = pd.Timedelta(minutes=max_duration_false_positive)
             for chunk in classify_trawling_list:
                 start = chunk[0]
                 end = chunk[1]
                 if df['speed_criteria'].loc[start] == 1:
-                    if (df[datetime_column].loc[end] - df[datetime_column].loc[start]) > min_duration_false_positive:
+                    if (df[datetime_column].loc[end] - df[datetime_column].loc[start]) > max_duration_false_positive:
+                        # The duration was longer than the maximum duration of false positive,
+                        # so it is considered to actually be fishing and the speed_criteria is kept at 1 (fishing)
                         df.loc[start:end, 'speed_criteria_column_temp'] = 1
                         assert all(df['speed_criteria_column_temp'].loc[start:end] == 1)
                     else:
+                        # The duration was shorter than the maximum duration of false positive,
+                        # so it is considered to be a false positive. The speed_criteria is set to 0 (not fishing)
                         df.loc[start:end, 'speed_criteria_column_temp'] = 0
                         assert all(df['speed_criteria_column_temp'].loc[start:end] == 0)
-    if min_duration_false_negative > 0:
+    if max_duration_false_negative > 0:
         with _print_with_time('Identifying false-negatives'):
             # Convert min_duration_false_negative into minutes (time format)
-            min_duration_false_negative = pd.Timedelta(minutes=min_duration_false_negative)
-            # Check if 0 (low speed) or 2 (high speeds) are between 1 (trawling speed) and its duration.
-            # If the duration of these reductions in speeds (between trawling) are less
-            # than the specified time criteria, it is converted into 1 (trawling speed)
+            max_duration_false_negative = pd.Timedelta(minutes=max_duration_false_negative)
+            # Check if 0 (low speed) or 2 (high speeds) are between 1 (fishing speed) and its duration.
+            # If the duration of these reductions in speeds (between fishing events) are less
+            # than the specified time criteria, it is converted into 1 (fishing speed)
             for idx in range(1, len(classify_trawling_list) - 2):
                 # Checks Sog criteria of current chunk
                 current_class = df['speed_criteria'].loc[classify_trawling_list[idx][1]]
                 if current_class == 0 or current_class == 2:
-                    # prev_trawl = df['Trawling'][classify_trawling_list[idx - 1][1]]  # Checks Trawling of previous chunk
-                    # next_trawl = df['Trawling'][classify_trawling_list[idx +1][1]] # Checks Trawling of next chunk
                     # Checks Sog criteria of previous chunk
                     prev_class = df['speed_criteria_column_temp'].loc[classify_trawling_list[idx - 1][1]]
                     # Checks Sog criteria of following chunk
                     next_class = df['speed_criteria_column_temp'].loc[classify_trawling_list[idx + 1][1]]
                     if prev_class == 1 and next_class == 1:
-                        # if prev_class == 1 and next_class == 1 and (prev_trawl == True or next_trawl == True):
+                        # Previous and following classifications are in fishing speed
                         start, end = classify_trawling_list[idx]
                         if (df[datetime_column].loc[end] - df[datetime_column].loc[start]) \
-                                <= min_duration_false_negative:
+                                <= max_duration_false_negative:
+                            # The duration of the event (not at fishing speed) is shorter than the maximum duration
+                            # of false-negatives, so it is considered a false-negative and the speed_criteria is
+                            # changed to 1 (fishing)
                             df.loc[start:end, 'speed_criteria_column_temp'] = 1
                             assert all(df['speed_criteria_column_temp'].loc[start:end] == 1)
-    if not min_duration_false_negative == 0 or not min_duration_false_positive == 0:
+    if not max_duration_false_negative == 0 or not max_duration_false_positive == 0:
         with _print_with_time('Getting new set of trawling criteria'):
+            # After correcting for false-positives and false-negatives, re-evaluate fishing activity.
             # Creates a list of tuples (index start, index end) of all the 'chunks' based on same SOG criteria (0,1,2)
-            # considering that the vessel's AIS has been turned off during less than 'AIS_turn_off'.
-            classify_trawling_list = _get_chunk_indices(df, _get_same_period_fn(AIS_turn_off,
+            # considering that the vessel's GPS positioning has been turned off during less than 'turn_off_time'.
+            classify_trawling_list = _get_chunk_indices(df, _get_same_period_fn(turn_off_time,
                                                                                 ['speed_criteria_column_temp',
                                                                                  name_column,
                                                                                  'Date_day'],
@@ -620,14 +751,9 @@ def identify_trawling(df, datetime_column, name_column, speed_column, min_trawl_
                 if (df[datetime_column].loc[end] - df[datetime_column].loc[start]) > min_haul:
                     df.loc[start:end, 'Trawling'] = True
                     assert all(df['Trawling'].loc[start:end] == True)
-    # TODO Account for the displacement of trawling gear
-    # with print_with_time('Accounting for the displacement of trawling gear'):
-    #     df['Lat_gear'] = np.where(df['Trawling'] == True, False)
-    #     pass
-
     with _print_with_time('Identifying Haul_id'):
         cnt = 0
-        new_trawling_list = _get_chunk_indices(df, _get_same_period_fn(AIS_turn_off,
+        new_trawling_list = _get_chunk_indices(df, _get_same_period_fn(turn_off_time,
                                                                        ['Trawling',
                                                                         name_column,
                                                                         'Date_day'],
@@ -743,14 +869,15 @@ def _create_grid(side_length, shape='square', feature=None, bounds=None, proj=No
 
 
 def point_to_line(df, name_column, haulid_column='Haul id', date_column='Date_day',
-                  input_crs=None, latitude=None, longitude=None, output_crs=None, additional_columns=None):
+                  input_crs='epsg:4326', latitude=None, longitude=None, output_crs=None, additional_columns=None):
     if additional_columns is not None:
         assert isinstance(additional_columns, (list, tuple)), \
             f'variable additional_columns needs to be a list or tuple of columns to be added in the output, ' \
             f'not {additional_columns}'
     with _print_with_time('Converting point to line'):
         if isinstance(df, pd.DataFrame):
-            assert input_crs is not None and latitude is not None and longitude is not None
+            assert all([longitude, latitude, input_crs]) is not None, \
+                f'No data provided for longitude, latitude, or input_crs'
             gdf = gpd.GeoDataFrame(df,
                                    geometry=gpd.points_from_xy(x=df[longitude], y=df[latitude]),
                                    crs=input_crs)
@@ -788,7 +915,7 @@ def swept_area_ratio(grid_size, gdf, file_name, gear_width, crs=None, bounds=Non
         # Count the number of hauls within a specified search radius, which is half the gear width
         # (assume the vessel's position is in the middle)
         assert isinstance(gear_width, int), f'gear_width needs to be an integer'
-        search_radius = int(gear_width/2)
+        search_radius = int(gear_width / 2)
         hauls_buffer = gdf.buffer(distance=search_radius, cap_style=2)
         hauls_buffer.reset_index(drop=True, inplace=True)
         hauls_buffer = gpd.GeoDataFrame({'Id': np.ones(len(hauls_buffer))},
