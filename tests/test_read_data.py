@@ -45,7 +45,8 @@ def test_reduce_min():
     df = fe.read_df(file='AIS_data_test.csv', file_dir='tests')
     df_min = fe.data_reduction_min(df=df, datetime_column='Fecha_Posicion',
                                    name_column='Mmsi',
-                                   additional_columns=['Latitud_decimal', 'Longitud_decimal', 'Sog'])
+                                   additional_columns=['Latitud_decimal', 'Longitud_decimal', 'Sog'],
+                                   date_format="%d-%m-%y %H:%M")
     assert all(col in df_min.columns for col in ['Fecha_Posicion_min', 'Date', 'Month', 'Time'])
     assert ptypes.is_datetime64_dtype(df['Fecha_Posicion_min'])
     # Truncate to minute precision
