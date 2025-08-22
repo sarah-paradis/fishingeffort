@@ -14,7 +14,7 @@ import math
 
 
 # Plot gaussian distribution of vessel speed
-def draw_histogram(data, df_speed_params=None, speed_unit = 'kn', fig_name=None, format_fig='eps',
+def draw_histogram(data, df_speed_params=None, speed_unit='kn', fig_name=None, format_fig='eps',
                    dir_out=None):
     """
     Creates a histogram of a dataset. Ideally used to plot speed of fishing vessels to identify trawling speed
@@ -29,14 +29,16 @@ def draw_histogram(data, df_speed_params=None, speed_unit = 'kn', fig_name=None,
     format_fig = format of the figure to be saved. Default is set to "eps". Also accepts "jpeg", "tiff", etc.
 
     """
+    assert isinstance(data, pd.Series), 'data needs to be a Series'
     with _print_with_time('Plotting histogram of dataset'):
-        ### Create a histogram of the whole dataset
+        # Create a histogram of the whole dataset
+        fig, ax = plt.subplots()
         # Set style
         sns.set_style('whitegrid')
         sns.set_style('ticks')
         sns.set_context('notebook', font_scale=1.25)
         # Plot the figure
-        ax = sns.histplot(data, kde=False, color='grey')
+        sns.histplot(data, kde=False, color='grey', ax=ax)
         ax.set(xlabel=f'Vessel speed ({speed_unit})')
         ax.set(xlim=(0, 16))
         ax.set(ylabel='Frequency')
@@ -51,24 +53,23 @@ def draw_histogram(data, df_speed_params=None, speed_unit = 'kn', fig_name=None,
             std_dev_trawling = df_speed_params['std_dev']['trawling']
 
             # Annotate the graph with trawling information
-            ax.annotate('Trawling', (avg_speed_trawling, y_max*1.25), color=color, size=13.5,
+            ax.annotate('Trawling', (avg_speed_trawling, y_max * 1.25), color=color, size=13.5,
                         va='center', ha='center')
             ax.annotate(f'{min_speed_trawling:.1f} - {max_speed_trawling:.1f} {speed_unit}',
-                        (avg_speed_trawling, y_max*1.15), color=color, size=10,
+                        (avg_speed_trawling, y_max * 1.15), color=color, size=10,
                         va='center', ha='center')
 
             # Plot Gaussian distribution of trawling
             def gauss(x, mu, sigma, A):
                 return A * np.exp(-(x - mu) ** 2 / (2 * sigma ** 2))
 
-            x_plot = np.linspace(0, max_speed_trawling*1.5, 500)
+            x_plot = np.linspace(0, max_speed_trawling * 1.5, 500)
             y_mode = gauss(x_plot, avg_speed_trawling, std_dev_trawling, y_max)  # scale for visualization
             ax.plot(x_plot, y_mode, color=color, lw=2)
 
             # Plot limits where we consider trawling speeds
             ax.axvline(min_speed_trawling, color=color, linestyle='--')
             ax.axvline(max_speed_trawling, color=color, linestyle='--')
-
 
             # Establish parameters of navigating
             avg_speed_nav = df_speed_params['mean']['navigating']
@@ -79,7 +80,7 @@ def draw_histogram(data, df_speed_params=None, speed_unit = 'kn', fig_name=None,
             ax.annotate('Navigating', (avg_speed_nav, y_max * 1.25), color='k', size=13.5,
                         va='center', ha='center')
             ax.annotate(f'{min_speed_nav:.1f} - {max_speed_nav:.1f} {speed_unit}',
-                        (avg_speed_nav, y_max*1.15), color='k', size=10,
+                        (avg_speed_nav, y_max * 1.15), color='k', size=10,
                         va='center', ha='center')
 
             if 'drifting' in df_speed_params.index:
@@ -128,7 +129,7 @@ def fishing_identification_check(df, name_column, datetime_column, fig_name=None
 
         utm_proj = _cartopy_UTM_projection(gdf)
 
-        fig, axs = plt.subplots(nrows=rows, ncols=cols, figsize=(cols*3, rows*3),
+        fig, axs = plt.subplots(nrows=rows, ncols=cols, figsize=(cols * 3, rows * 3),
                                 constrained_layout=True,
                                 subplot_kw=dict(projection=utm_proj))
         # Flatten axes to always return a 1D list-like
@@ -193,4 +194,3 @@ def _compute_subplot_grid_size(n):
         best_cols = math.ceil(n / best_rows)
 
     return best_rows, best_cols
-
