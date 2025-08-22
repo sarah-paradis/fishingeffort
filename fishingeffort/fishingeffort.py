@@ -9,7 +9,7 @@ from shapely.geometry import Polygon, box, LineString
 import math
 from geocube.api.core import make_geocube
 
-from fishingeffort.utils import _print_with_time
+from fishingeffort.utils import _print_with_time, _UTM_zone_epsg
 import warnings
 
 pd.options.mode.chained_assignment = None  # default='warn'
@@ -896,6 +896,18 @@ def point_to_line(df, name_column, haulid_column='Haul id', date_column='Date_da
             return gdf_hauls_lines.to_crs(output_crs)
     else:
         return gdf_hauls_lines
+
+
+def utm_zone_epsg(df, latitude, longitude, input_crs='epsg: 4326'):
+    if isinstance(df, pd.DataFrame):
+        assert all([longitude, latitude, input_crs]) is not None, \
+            f'No data provided for longitude, latitude, or input_crs'
+        gdf = gpd.GeoDataFrame(df,
+                               geometry=gpd.points_from_xy(x=df[longitude], y=df[latitude]),
+                               crs=input_crs)
+    else:
+        gdf = df
+    return _UTM_zone_epsg(gdf=gdf)
 
 
 def swept_area_ratio(grid_size, gdf, file_name, gear_width, crs=None, bounds=None, dir_out=None):
