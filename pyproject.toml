@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fishingeffort"
+version = "0.1.0"
+description = "Estimate and analyze fishing effort using geographical position of vessels (AIS or VMS)"
+readme = "README.md"
+requires-python = ">=3.7"
+license = {text = "MIT"}
+authors = [
+  { name="Sarah Paradis", email="sarah.paradisvilar@gmail.com" }
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Information Analysis",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.7",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Operating System :: OS Independent"
+]
+
+dependencies = [
+  "pandas",
+  "numpy",
+  "geopandas",
+  "geocube",
+  "scipy",
+  "cartopy",
+  "rasterio",
+  "seaborn"
+]
+
+[project.urls]
+Homepage = "https://github.com/sarah-paradis/fishingeffort"
+Repository = "https://github.com/sarah-paradis/fishingeffort"
+
+[tool.setuptools.packages.find]
+where = ["."]
+exclude = ["tests*", "test*"]
