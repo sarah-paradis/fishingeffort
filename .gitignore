@@ -36,8 +36,6 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
-# Figures
-figures
 
 # Debugging files
 things_to_try.py
