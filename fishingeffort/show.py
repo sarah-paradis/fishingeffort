@@ -105,8 +105,6 @@ def draw_histogram(data, df_speed_params=None, speed_unit='kn', fig_name=None, f
                 fig.savefig(file_name, format=format_fig, dpi=500)
 
 
-# TODO Plot fishing effort raster
-
 def fishing_identification_check(df, name_column, datetime_column, fig_name=None,
                                  dir_out=None, format_fig='eps', n_fig=10,
                                  latitude=None, longitude=None, input_crs='epsg:4326',
