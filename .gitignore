@@ -10,7 +10,7 @@ venv/
 
 # Distribution / packaging
 build/
-dist/
+dist/*
 *.egg-info/
 
 # Installer logs
