@@ -37,6 +37,6 @@ def test_plot_define_fishing_speed():
     from matplotlib.figure import Figure
     df = fe.read_df(file='AIS_data_test.csv', file_dir='tests')
     speed_parameters = fe.define_fishing_speed(df=df, speed_column='Sog', mean_trawl=2, mean_nav=10)
-    fe_show.draw_histogram(data=df, df_speed_params=speed_parameters, dir_out='tests',
+    fe_show.draw_histogram(data=df['Sog'], df_speed_params=speed_parameters, dir_out='tests',
                            speed_unit='kn', fig_name='speed_hist', format_fig='jpg')
     assert os.path.exists(os.path.join('tests', 'speed_hist.jpg'))
