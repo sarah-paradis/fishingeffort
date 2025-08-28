@@ -4,7 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fishingeffort"
-version = "0.1.1"
+dynamic = ["version"]
+
+[tool.setuptools.dynamic]
+version = {attr = "fishingeffort.__version__"}
 description = "Estimate and analyze fishing effort using geographical position of vessels (AIS or VMS)"
 readme = "README.md"
 requires-python = ">=3.7"
