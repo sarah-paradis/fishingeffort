@@ -1,3 +1,6 @@
+## [0.1.2] - 2025-08-25
+- Corrected updated version
+
 ## [0.1.1] - 2025-08-25
 ### Fixed
 - Added the possibility of identifying fishing speed with a unimodal distribution (`fishingeffort.define_fishing_speed()`)
