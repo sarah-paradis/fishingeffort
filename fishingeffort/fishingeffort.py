@@ -523,7 +523,7 @@ def define_fishing_speed(df, speed_column,
     - mean_drift: initial guess for drifting speed (only for trimodal)
     - mean_trawl: initial guess for trawling speed
     - mean_nav: initial guess for navigating speed
-    - mode: 'bimodal' or 'trimodal'
+    - mode: 'unimodal', 'bimodal' or 'trimodal'. Default is 'bimodal'
 
     Returns:
     - DataFrame with parameters and 95% confidence ranges
@@ -538,6 +538,9 @@ def define_fishing_speed(df, speed_column,
     def gauss(x, mu, sigma, A):
         return A * np.exp(-(x - mu) ** 2 / (2 * sigma ** 2))
 
+    def unimodal(x, mu1, sigma1, A1):
+        return gauss(x, mu1, sigma1, A1)
+
     def bimodal(x, mu1, sigma1, A1, mu2, sigma2, A2):
         return gauss(x, mu1, sigma1, A1) + gauss(x, mu2, sigma2, A2)
 
@@ -550,6 +553,13 @@ def define_fishing_speed(df, speed_column,
         means = [params[0], params[3]]
         stds = [params[1], params[4]]
         labels = ['trawling', 'navigating']
+
+    elif mode == 'unimodal':
+        expected = [mean_trawl, 1, max(y[:50])]
+        params, _ = curve_fit(unimodal, x, y, p0=expected)
+        means = [params[0]]
+        stds = [params[1]]
+        labels = ['trawling']
 
     elif mode == 'trimodal':
         if mean_drift is None:
